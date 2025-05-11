@@ -32,7 +32,7 @@ torch.set_default_device(device)
 # Neural network
 class LinearQAK(nn.Module,):
     def __init__(self, hyperparameters):
-        n_observations = hyperparameters["N_CONDITION_STATES"]
+        n_observations = hyperparameters["N_CONDITION_STATES"] + 1
         self.basis = hyperparameters["BASIS_DOMAIN"]
         super(LinearQAK, self).__init__()
         self.one_layer = nn.Linear(n_observations, hyperparameters["DEGREE_APPROXIMATION"])
@@ -46,7 +46,7 @@ class LinearQAK(nn.Module,):
 
 class LinearQ(nn.Module,):
     def __init__(self, hyperparameters):
-        n_observations = hyperparameters["N_CONDITION_STATES"]
+        n_observations = hyperparameters["N_CONDITION_STATES"] + 1
         self.basis = hyperparameters["BASIS_DOMAIN"]
 
         super(LinearQ, self).__init__()
@@ -60,16 +60,18 @@ class LinearQ(nn.Module,):
 # Neural network
 class DQAKN(nn.Module,):
     def __init__(self, hyperparameters):
-        n_observations = hyperparameters["N_CONDITION_STATES"]
+        n_observations = hyperparameters["N_CONDITION_STATES"] + 1
         self.basis = hyperparameters["BASIS_DOMAIN"]
 
         super(DQAKN, self).__init__()
         # hidden layers
         self.layer1 = nn.Linear(n_observations, hyperparameters["N_DEEP_NODES"])
+        self.layer2 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["N_DEEP_NODES"])
         self.layer3 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["DEGREE_APPROXIMATION"])
 
     def forward(self, x):
         x = F.tanh(self.layer1(x))
+        x = F.tanh(self.layer2(x))
         x = self.layer3(x)
         
         # evaluate q(s, a) for all values of f_k(a)
@@ -81,14 +83,14 @@ class DQAKN(nn.Module,):
 # Neural network
 class DQN(nn.Module,):
     def __init__(self, hyperparameters):
-        n_observations = hyperparameters["N_CONDITION_STATES"]
+        n_observations = hyperparameters["N_CONDITION_STATES"] + 1
         n_actions = hyperparameters["MAX_REPAIR_CONSTRAINT"] + 1
         self.basis = hyperparameters["BASIS_DOMAIN"]
-
+        N_DEEP_NODES = hyperparameters["N_DEEP_NODES"]
         super(DQN, self).__init__()
         # hidden layers
         self.layer1 = nn.Linear(n_observations, hyperparameters["N_DEEP_NODES"])
-        # self.layer2 = nn.Linear(N_DEEP_NODES, N_DEEP_NODES)
+        self.layer2 = nn.Linear(N_DEEP_NODES, N_DEEP_NODES)
         # hidden layers to basis weights
         # self.layer3 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["DEGREE_APPROXIMATION"])
         # For no function approximation
@@ -98,7 +100,7 @@ class DQN(nn.Module,):
     def forward(self, x):
         # x = self.one_layer(x)
         x = F.tanh(self.layer1(x))
-        # x = F.tanh(self.layer2(x))
+        x = F.tanh(self.layer2(x))
         x = self.direct_layer(x)
         # x = self.layer3(x)
         
@@ -279,6 +281,7 @@ class MaitenanceDQBNTrainer:
         action_batch = batch["action"]
         next_state_batch = batch["next_observation"]
         reward_batch = batch["reward"]
+        done_batch = batch["done"].to(torch.bool)
 
         # see what policy network predicts on initial states
         # NOTE: Gradient Calculated with this operation!
@@ -287,15 +290,15 @@ class MaitenanceDQBNTrainer:
         # see what target network predicts on next states
         next_state_values = torch.zeros_like(state_action_values)
         with torch.no_grad(): # do not calculate gradient on target network. (Target network is updated softly through tau)
-            Q = self.q_hat_prime(next_state_batch)
+            Q = self.q_hat_prime(next_state_batch[~ done_batch])
             _, Q_best_index = torch.max(Q, dim=1)
-            next_state_values = Q[torch.arange(state_action_values.shape[0]), Q_best_index]
+            next_state_values[~ done_batch] = _
 
         # calculate tempotal difference target
         target_state_action_values = (next_state_values * self.hyperparameters["GAMMA"]) + reward_batch
 
         # get loss
-        criterion = nn.SmoothL1Loss(reduction="none")
+        criterion = nn.SmoothL1Loss(reduction="mean")
         loss = criterion(state_action_values, target_state_action_values)
         loss = loss.mean()
 
@@ -380,12 +383,14 @@ class MaitenanceDQBNTrainer:
                 next_observation = td["observation"]
 
                 # get rewards
-                rewards = td["reward"].squeeze()
+                rewards = td["reward"].squeeze() / 100
 
                 episode_reward += rewards.mean().cpu().item()
 
                 # get done
-                done = td["done"]
+                done = torch.zeros_like(rewards, dtype=torch.bool)
+                if step == self.hyperparameters["EPISODE_LENGTH"] - 1:
+                    done = torch.ones_like(rewards, dtype=torch.bool)
 
                 # add batch transition to memory replay buffer
                 self.batch_add_memory(observation, n_repair, next_observation, rewards, done)
@@ -402,7 +407,7 @@ class MaitenanceDQBNTrainer:
                     target_net_state_dict = self.q_hat_prime.state_dict()
                     policy_net_state_dict = self.q_hat.state_dict()
                     for key in policy_net_state_dict:
-                        target_net_state_dict[key] = policy_net_state_dict[key] * self.hyperparameters["TAU"] + target_net_state_dict[key] * (1 - self.hyperparameters["TAU"]) # DONT FOTGET 1 - TAU, IT WILL TAKE A WHOLE DAY TO FIGURE OUT WHY IT ISNT TRAINING
+                        target_net_state_dict[key] = policy_net_state_dict[key] * self.hyperparameters["TAU"] + target_net_state_dict[key] * (1 - self.hyperparameters["TAU"]) 
                     self.q_hat_prime.load_state_dict(target_net_state_dict)
                 
                 if test_observation is not None:
@@ -492,7 +497,7 @@ class MaitenanceDQBNTrainer:
                     td = td["next"]
 
                     # get rewards
-                    rewards = td["reward"].squeeze()
+                    rewards = td["reward"].squeeze() 
 
                     # episode_reward += rewards.mean().cpu().item()
                     episode_orm += td["orm_costs"].mean().cpu().item() * (gamma ** step)

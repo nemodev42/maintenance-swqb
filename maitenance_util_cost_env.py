@@ -54,7 +54,7 @@ def _step(tensordict,):
     transitions = tensordict["params", "transitions"]
     # rsa = tensordict["params", "rewards"]
 
-    
+    step = tensordict["step"]
     
     # Determine batch size, defaulting to 1 if there's no batch
     batch_size = actions.shape[0] if actions.dim() > 1 else 1
@@ -146,6 +146,7 @@ def _step(tensordict,):
             "params": tensordict["params"],
             "reward": rewards,
             "done": done,
+            "step": step + 1,
         },
         tensordict.shape
     )
@@ -183,6 +184,7 @@ def _reset(self, tensordict, randomize: bool = False):
 
     orm_costs = torch.zeros(tensordict.shape, dtype=torch.float32, device=self.device)
     utility = torch.zeros(tensordict.shape, dtype=torch.float32, device=self.device)
+    step = torch.zeros(tensordict.shape, dtype=torch.float32, device=self.device)
 
     # Return the initial state
     out = TensorDict(
@@ -190,7 +192,7 @@ def _reset(self, tensordict, randomize: bool = False):
             "conditions":conditions,
             "orm_costs":orm_costs,
             "utility":utility,
-            # "probabilities":probs,
+            "step":step,
             "params": tensordict["params"],
         },
         batch_size=tensordict.shape,
@@ -214,6 +216,7 @@ def _make_spec(self, td_params):
         shape=(),
         orm_costs=Unbounded(shape=(), dtype=torch.float32), # add the costs to the observation spec
         utility=Unbounded(shape=(), dtype=torch.float32), # add the utility to the observation spec
+        step=Unbounded(shape=(), dtype=torch.float32), # add the step to the observation spec
     )
     # since the environment is stateless, we expect the previous output as input.
     # For this, ``EnvBase`` expects some state_spec to be available
@@ -317,45 +320,152 @@ class DiscreteMaitenanceEnv(EnvBase):
 
 
 # calculates state distrobution
-class GeneralizationTransform(Transform):
-    def _apply_transform(self, obs: torch.Tensor) -> None:
-        batch_size = obs.shape[0]
-        # obs shape is [batch_size, N_Components] and is an integer 1-6
-        # Convert the obs to [batch_size, N_condtion_states] 
-        # and is the fraction of components in each condition for each paralell batched enviroment
-        obs = torch.nn.functional.one_hot(obs, num_classes=hyperparameters["N_CONDITION_STATES"]).float()
-        obs = obs.sum(dim=1)
-        obs = obs / obs.sum(dim=1, keepdim=True)
-        return obs
+# class GeneralizationTransform(Transform):
+#     def _apply_transform(self, obs: torch.Tensor) -> None:
+#         batch_size = obs.shape[0]
+#         # obs shape is [batch_size, N_Components] and is an integer 1-6
+#         # Convert the obs to [batch_size, N_condtion_states] 
+#         # and is the fraction of components in each condition for each paralell batched enviroment
+#         obs = torch.nn.functional.one_hot(obs, num_classes=hyperparameters["N_CONDITION_STATES"]).float()
+#         obs = obs.sum(dim=1)
+#         obs = obs / obs.sum(dim=1, keepdim=True)
+#         return obs
 
-    # The transform must also modify the data at reset time
+#     # The transform must also modify the data at reset time
+#     def _reset(
+#         self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase
+#     ) -> TensorDictBase:
+#         return self._call(tensordict_reset)
+
+#     # _apply_to_composite will execute the observation spec transform across all
+#     # in_keys/out_keys pairs and write the result in the observation_spec which
+#     # is of type ``Composite``
+#     @_apply_to_composite
+#     def transform_observation_spec(self, observation_spec):
+#         return BoundedTensorSpec(
+#             low=0,
+#             high=1,
+#             shape=(6,),
+#             dtype=torch.float32,
+#             device=device, #observation_spec.device,
+#         )
+
+# def transform_maitenance_env(env):
+#     # Add the transform to the environment
+#     t_generalize = GeneralizationTransform(in_keys=["conditions"], out_keys=["condition_distrobution"])
+#     env = env.append_transform(t_generalize)
+#     # turn the condition distrobution into a single tensor for the observation
+#     cat_transform = CatTensors(
+#         in_keys=["condition_distrobution"], dim=-1, out_key="observation", del_keys=False
+#     )
+#     env = env.append_transform(cat_transform)
+#     return env
+
+
+# # calculates state distrobution
+# class GeneralizationTransform(Transform):
+#     def _apply_transform(self, obs: torch.Tensor) -> None:
+#         batch_size = obs.shape[0]
+#         # print(obs.shape)
+#         # obs shape is [batch_size, N_Components] and is an integer 1-6
+#         # Convert the obs to [batch_size, N_condtion_states] 
+#         # and is the fraction of components in each condition for each paralell batched enviroment
+#         obs = torch.nn.functional.one_hot(obs, num_classes=hyperparameters["N_CONDITION_STATES"]).float()
+#         obs = obs.sum(dim=1)
+#         obs = obs / obs.sum(dim=1, keepdim=True)
+#         # add the step to the obs
+#         # obs = torch.cat([obs, step.unsqueeze(1)/hyperparameters["EPISODE_LENGTH"]], dim=1)
+#         return obs
+
+#     # The transform must also modify the data at reset time
+#     def _reset(
+#         self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase
+#     ) -> TensorDictBase:
+#         return self._call(tensordict_reset)
+
+#     # _apply_to_composite will execute the observation spec transform across all
+#     # in_keys/out_keys pairs and write the result in the observation_spec which
+#     # is of type ``Composite``
+#     @_apply_to_composite
+#     def transform_observation_spec(self, observation_spec):
+#         return BoundedTensorSpec(
+#             low=0,
+#             high=1,
+#             shape=(6,),
+#             dtype=torch.float32,
+#             device=device, #observation_spec.device,
+#         )
+    
+
+# def transform_maitenance_env(env):
+#     # Add the transform to the environment
+#     t_generalize = GeneralizationTransform(in_keys=["conditions"], out_keys=["condition_distrobution"])
+#     env = env.append_transform(t_generalize)
+#     # turn the condition distrobution into a single tensor for the observation
+#     cat_transform = CatTensors(
+#         in_keys=["condition_distrobution"], dim=-1, out_key="observation", del_keys=False
+#     )
+#     env = env.append_transform(cat_transform)
+#     return env
+
+
+
+# from torchrl.envs.transforms import Transform
+# from torchrl.data import TensorDictBase
+# import torch
+# import torch.nn.functional as F
+# from torchrl.envs.utils import _apply_to_composite
+# from torchrl.data.tensor_specs import BoundedTensorSpec
+
+class GeneralizationTransform(Transform):
+    def __init__(self, in_keys, out_keys, episode_length):
+        super().__init__(in_keys=in_keys, out_keys=out_keys)
+        self.episode_length = episode_length
+
+    def _call(self, tensordict: TensorDictBase) -> TensorDictBase:
+        conditions = tensordict.get("conditions")  # [batch_size, N_Components]
+        step = tensordict.get("step")              # [batch_size] or [batch_size, 1]
+        
+        # Create condition distribution
+        batch_size = conditions.shape[0]
+        condition_onehot = F.one_hot(conditions, num_classes=hyperparameters["N_CONDITION_STATES"]).float()
+        condition_distrobution = condition_onehot.sum(dim=1)
+        condition_distrobution = condition_distrobution / condition_distrobution.sum(dim=1, keepdim=True)
+
+        # Normalize step
+        step_fraction = step.unsqueeze(-1) / self.episode_length  # Make sure step is [batch_size, 1]
+
+        # Concatenate
+        full_observation = torch.cat([condition_distrobution, step_fraction], dim=-1)
+
+        # Save to out_keys
+        tensordict.set(self.out_keys[0], full_observation)
+        return tensordict
+
     def _reset(
         self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase
     ) -> TensorDictBase:
         return self._call(tensordict_reset)
 
-    # _apply_to_composite will execute the observation spec transform across all
-    # in_keys/out_keys pairs and write the result in the observation_spec which
-    # is of type ``Composite``
     @_apply_to_composite
     def transform_observation_spec(self, observation_spec):
         return BoundedTensorSpec(
             low=0,
             high=1,
-            shape=(6,),
+            shape=(hyperparameters["N_CONDITION_STATES"] + 1,),
             dtype=torch.float32,
-            device=device, #observation_spec.device,
+            device=observation_spec.device,
         )
+
 
 def transform_maitenance_env(env):
     # Add the transform to the environment
-    t_generalize = GeneralizationTransform(in_keys=["conditions"], out_keys=["condition_distrobution"])
-    env = env.append_transform(t_generalize)
-    # turn the condition distrobution into a single tensor for the observation
-    cat_transform = CatTensors(
-        in_keys=["condition_distrobution"], dim=-1, out_key="observation", del_keys=False
+    t_generalize = GeneralizationTransform(
+        in_keys=["conditions"],
+        out_keys=["observation"],
+        episode_length=hyperparameters["EPISODE_LENGTH"]
     )
-    env = env.append_transform(cat_transform)
+    env = env.append_transform(t_generalize)
     return env
 
 
