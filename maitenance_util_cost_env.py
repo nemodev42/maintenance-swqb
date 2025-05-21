@@ -175,7 +175,7 @@ def _reset(self, tensordict, randomize: bool = False):
     conditions_shape = conditions_shape + (self.hyperparameters["N_COMPONENTS"],)
 
     # Initialize conditions to zeros
-    conditions = ( torch.zeros(conditions_shape, dtype=torch.int64, device=self.device) )
+    conditions = ( torch.zeros(conditions_shape, dtype=torch.int64, device=self.device)  )
 
     # Randomize initial state if requested
     if randomize:

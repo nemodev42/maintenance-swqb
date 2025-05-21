@@ -66,12 +66,12 @@ class DQAKN(nn.Module,):
         super(DQAKN, self).__init__()
         # hidden layers
         self.layer1 = nn.Linear(n_observations, hyperparameters["N_DEEP_NODES"])
-        self.layer2 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["N_DEEP_NODES"])
+        # self.layer2 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["N_DEEP_NODES"])
         self.layer3 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["DEGREE_APPROXIMATION"])
 
     def forward(self, x):
         x = F.tanh(self.layer1(x))
-        x = F.tanh(self.layer2(x))
+        # x = F.tanh(self.layer2(x))
         x = self.layer3(x)
         
         # evaluate q(s, a) for all values of f_k(a)
@@ -90,7 +90,7 @@ class DQN(nn.Module,):
         super(DQN, self).__init__()
         # hidden layers
         self.layer1 = nn.Linear(n_observations, hyperparameters["N_DEEP_NODES"])
-        self.layer2 = nn.Linear(N_DEEP_NODES, N_DEEP_NODES)
+        # self.layer2 = nn.Linear(N_DEEP_NODES, N_DEEP_NODES)
         # hidden layers to basis weights
         # self.layer3 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["DEGREE_APPROXIMATION"])
         # For no function approximation
@@ -100,7 +100,7 @@ class DQN(nn.Module,):
     def forward(self, x):
         # x = self.one_layer(x)
         x = F.tanh(self.layer1(x))
-        x = F.tanh(self.layer2(x))
+        # x = F.tanh(self.layer2(x))
         x = self.direct_layer(x)
         # x = self.layer3(x)
         
