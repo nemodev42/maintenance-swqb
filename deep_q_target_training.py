@@ -35,12 +35,18 @@ class LinearQAK(nn.Module,):
         n_observations = hyperparameters["N_CONDITION_STATES"] + 1
         self.basis = hyperparameters["BASIS_DOMAIN"]
         super(LinearQAK, self).__init__()
-        self.one_layer = nn.Linear(n_observations, hyperparameters["DEGREE_APPROXIMATION"])
+        self.one_layer = nn.Linear(n_observations, hyperparameters["DEGREE_APPROXIMATION"]+1)
     def forward(self, x):
+        x = x.reshape(-1, x.shape[-1])
+
         x= self.one_layer(x)
         
         # evaluate q(s, a) for all values of f_k(a)
-        x = x @ self.basis
+        # x = x @ self.basis
+        x = torch.cat(
+            [ x[:,0].unsqueeze(1),
+              x[:,1:] @ self.basis ],
+             dim=1)
         
         return  x # return q(s, a)
 
@@ -66,16 +72,20 @@ class DQAKN(nn.Module,):
         super(DQAKN, self).__init__()
         # hidden layers
         self.layer1 = nn.Linear(n_observations, hyperparameters["N_DEEP_NODES"])
-        # self.layer2 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["N_DEEP_NODES"])
-        self.layer3 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["DEGREE_APPROXIMATION"])
+        self.layer2 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["N_DEEP_NODES"])
+        self.layer3 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["DEGREE_APPROXIMATION"]+1)
 
     def forward(self, x):
+        x = x.reshape(-1, x.shape[-1])
         x = F.tanh(self.layer1(x))
-        # x = F.tanh(self.layer2(x))
+        x = F.tanh(self.layer2(x))
         x = self.layer3(x)
         
         # evaluate q(s, a) for all values of f_k(a)
-        x = x @ self.basis
+        x = torch.cat(
+            [ x[:,0].unsqueeze(1),
+              x[:,1:] @ self.basis ],
+             dim=1)
         
         return  x # return q(s, a)
 
@@ -90,7 +100,7 @@ class DQN(nn.Module,):
         super(DQN, self).__init__()
         # hidden layers
         self.layer1 = nn.Linear(n_observations, hyperparameters["N_DEEP_NODES"])
-        # self.layer2 = nn.Linear(N_DEEP_NODES, N_DEEP_NODES)
+        self.layer2 = nn.Linear(N_DEEP_NODES, N_DEEP_NODES)
         # hidden layers to basis weights
         # self.layer3 = nn.Linear(hyperparameters["N_DEEP_NODES"], hyperparameters["DEGREE_APPROXIMATION"])
         # For no function approximation
@@ -100,7 +110,7 @@ class DQN(nn.Module,):
     def forward(self, x):
         # x = self.one_layer(x)
         x = F.tanh(self.layer1(x))
-        # x = F.tanh(self.layer2(x))
+        x = F.tanh(self.layer2(x))
         x = self.direct_layer(x)
         # x = self.layer3(x)
         
@@ -237,7 +247,12 @@ class MaitenanceDQBNTrainer:
         
         if sample < entropy:
             # take random action
-            n_repair = torch.randint(0, self.hyperparameters["MAX_REPAIR_CONSTRAINT"] + 1, (batch_size,), device=device)
+            if torch.rand(1) < 0.25:
+                # do nothing
+                n_repair = torch.zeros(batch_size, device=device, dtype=torch.int64)
+            else:
+                # random repair
+                n_repair = torch.randint(0, self.hyperparameters["MAX_REPAIR_CONSTRAINT"] + 1, (batch_size,), device=device)
         else: 
             # take action from policy network
             with torch.no_grad(): # Do not calculate gradient.
